@@ -145,22 +145,7 @@ function renderDetail(key) {
   const label = group
     ? (displayArtist && displayArtist !== NO_ARTIST ? `${displayArtist} — ${group.album}` : group.album)
     : key;
-
-  const titleWrap = document.createElement("div");
-  titleWrap.className = "detail-title-wrap";
-  const h2 = document.createElement("h2");
-  h2.textContent = label;
-  titleWrap.appendChild(h2);
-  if (group) {
-    const editBtn = document.createElement("button");
-    editBtn.className = "edit-btn edit-album-btn";
-    editBtn.title = "Edit artist/album";
-    editBtn.innerHTML = "&#9998;";
-    editBtn.addEventListener("click", () => albumEditForm.classList.toggle("hidden"));
-    titleWrap.appendChild(editBtn);
-  }
-  header.appendChild(titleWrap);
-
+  header.innerHTML = `<h2>${escapeHtml(label)}</h2>`;
   const findAlbumBtn = document.createElement("button");
   findAlbumBtn.textContent = "Find matches (album)";
   findAlbumBtn.addEventListener("click", () => {
@@ -168,51 +153,6 @@ function renderDetail(key) {
   });
   header.appendChild(findAlbumBtn);
   detailCol.appendChild(header);
-
-  const albumEditForm = document.createElement("form");
-  albumEditForm.className = "inline-edit-form album-edit-form hidden";
-  albumEditForm.innerHTML = `
-    <label>Artist <input type="text" class="edit-album-artist"></label>
-    <label>Album <input type="text" class="edit-album-album"></label>
-    <div class="inline-edit-actions">
-      <button type="submit" class="edit-save-btn">Save</button>
-      <button type="button" class="edit-cancel-btn">Cancel</button>
-    </div>
-  `;
-  if (group) {
-    albumEditForm.querySelector(".edit-album-artist").value = displayArtist && displayArtist !== NO_ARTIST ? displayArtist : "";
-    albumEditForm.querySelector(".edit-album-album").value = group.album !== NO_ALBUM ? group.album : "";
-    albumEditForm.querySelector(".edit-cancel-btn").addEventListener("click", () => albumEditForm.classList.add("hidden"));
-    albumEditForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const body = {
-        artist: albumEditForm.querySelector(".edit-album-artist").value.trim() || null,
-        album: albumEditForm.querySelector(".edit-album-album").value.trim() || null,
-      };
-      const saveBtn = albumEditForm.querySelector(".edit-save-btn");
-      saveBtn.disabled = true;
-      try {
-        const res = await fetch(`/api/albums/${encodeURIComponent(group.artist)}/${encodeURIComponent(group.album)}/edit`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const updated = await res.json();
-        for (const record of updated) {
-          const idx = files.findIndex((f) => f.id === record.id);
-          if (idx !== -1) files[idx] = record;
-        }
-        albums = groupByArtistAlbum(files);
-        renderAlbumList(albums);
-        renderDetail(key);
-      } catch (err) {
-        alert("Edit failed: " + err.message);
-        saveBtn.disabled = false;
-      }
-    });
-  }
-  detailCol.appendChild(albumEditForm);
 
   const songsContainer = document.createElement("div");
   songsContainer.id = "songs-container";
@@ -264,109 +204,7 @@ function renderSongRow(record) {
 
   row.querySelector(".find-song-match-btn").addEventListener("click", (e) => findSongMatches(record.id, row, e.target));
 
-  // Shared mutable holder so the filename-edit and metadata-edit forms
-  // (wired separately below) always prefill from whichever one last saved,
-  // rather than each closing over its own stale copy of `record`.
-  const state = { record };
-  row._editState = state; // let findSongMatches' onApprove keep this in sync too
-  wireFilenameEdit(row, state);
-  wireSongEdit(row, state);
-
   return row;
-}
-
-// After any manual edit or apply, patch `files`/`albums`, the shared row
-// state, and this row's DOM with the freshly-returned record — same
-// pattern findSongMatches uses.
-function applyRecordUpdate(row, state, record) {
-  state.record = record;
-  const idx = files.findIndex((f) => f.id === record.id);
-  if (idx !== -1) files[idx] = record;
-  albums = groupByArtistAlbum(files);
-  row.dataset.id = record.id;
-  row.querySelector(".filename").textContent = record.filename;
-  updateStatus(row, record.status);
-  renderCurrentTags(row, record.tags);
-}
-
-function wireFilenameEdit(row, state) {
-  const btn = row.querySelector(".edit-filename-btn");
-  const form = row.querySelector(".filename-edit-form");
-  const input = form.querySelector(".edit-filename-input");
-  const extLabel = form.querySelector(".edit-ext");
-
-  btn.addEventListener("click", () => {
-    const { filename, ext } = state.record;
-    input.value = filename.endsWith(ext) ? filename.slice(0, -ext.length) : filename;
-    extLabel.textContent = ext;
-    form.classList.toggle("hidden");
-    if (!form.classList.contains("hidden")) input.focus();
-  });
-  form.querySelector(".edit-cancel-btn").addEventListener("click", () => form.classList.add("hidden"));
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const saveBtn = form.querySelector(".edit-save-btn");
-    saveBtn.disabled = true;
-    try {
-      const res = await fetch(`/api/files/${state.record.id}/rename`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: input.value.trim() }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      applyRecordUpdate(row, state, await res.json());
-      form.classList.add("hidden");
-    } catch (err) {
-      alert("Rename failed: " + err.message);
-    } finally {
-      saveBtn.disabled = false;
-    }
-  });
-}
-
-function wireSongEdit(row, state) {
-  const btn = row.querySelector(".edit-song-btn");
-  const form = row.querySelector(".song-edit-form");
-  const fields = {
-    title: form.querySelector(".edit-title"),
-    artist: form.querySelector(".edit-artist"),
-    album: form.querySelector(".edit-album"),
-    date: form.querySelector(".edit-date"),
-    track: form.querySelector(".edit-track"),
-  };
-
-  btn.addEventListener("click", () => {
-    for (const key of Object.keys(fields)) fields[key].value = state.record.tags[key] || "";
-    form.classList.toggle("hidden");
-    if (!form.classList.contains("hidden")) fields.title.focus();
-  });
-  form.querySelector(".edit-cancel-btn").addEventListener("click", () => form.classList.add("hidden"));
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const candidate = {};
-    for (const key of Object.keys(fields)) {
-      const v = fields[key].value.trim();
-      if (v) candidate[key] = v;
-    }
-    const saveBtn = form.querySelector(".edit-save-btn");
-    saveBtn.disabled = true;
-    try {
-      const res = await fetch(`/api/files/${state.record.id}/apply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidate }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      applyRecordUpdate(row, state, await res.json());
-      form.classList.add("hidden");
-    } catch (err) {
-      alert("Save failed: " + err.message);
-    } finally {
-      saveBtn.disabled = false;
-    }
-  });
 }
 
 function renderCurrentTags(row, tags) {
@@ -445,9 +283,13 @@ async function findSongMatches(fileId, row, btn) {
         alert("Apply failed: " + (await res.text()));
         return;
       }
-      // also refreshes row._editState so the manual edit forms (wired in
-      // renderSongRow) prefill from this newly-approved match, not stale data
-      applyRecordUpdate(row, row._editState, await res.json());
+      const record = await res.json();
+      const idx = files.findIndex((f) => f.id === fileId);
+      if (idx !== -1) files[idx] = record;
+      albums = groupByArtistAlbum(files); // keep grouped view in sync with the freshly-read tags
+      updateStatus(row, record.status);
+      renderCurrentTags(row, record.tags);
+      row.querySelector(".filename").textContent = record.filename; // reflect a possible rename
     },
   });
 }

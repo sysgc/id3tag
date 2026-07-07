@@ -48,33 +48,12 @@
 <template id="song-row-template">
   <div class="song-row">
     <div class="song-row-header">
-      <span class="filename-display">
-        <span class="filename"></span>
-        <button class="edit-btn edit-filename-btn" title="Edit filename">&#9998;</button>
-      </span>
+      <span class="filename"></span>
       <span class="duration"></span>
       <span class="status-badge"></span>
       <button class="find-song-match-btn">Find match</button>
-      <button class="edit-btn edit-song-btn" title="Edit metadata">&#9998; Edit</button>
     </div>
-    <form class="inline-edit-form filename-edit-form hidden">
-      <input type="text" class="edit-filename-input" placeholder="Filename (no extension needed)">
-      <span class="edit-ext"></span>
-      <button type="submit" class="edit-save-btn">Save</button>
-      <button type="button" class="edit-cancel-btn">Cancel</button>
-    </form>
     <div class="current-tags"></div>
-    <form class="inline-edit-form song-edit-form hidden">
-      <label>Title <input type="text" class="edit-title"></label>
-      <label>Artist <input type="text" class="edit-artist"></label>
-      <label>Album <input type="text" class="edit-album"></label>
-      <label class="edit-year-label">Year <input type="text" class="edit-date"></label>
-      <label class="edit-track-label">Track <input type="text" class="edit-track"></label>
-      <div class="inline-edit-actions">
-        <button type="submit" class="edit-save-btn">Save</button>
-        <button type="button" class="edit-cancel-btn">Cancel</button>
-      </div>
-    </form>
     <details class="all-tags">
       <summary>All tags (raw)</summary>
       <div class="all-tags-body"></div>

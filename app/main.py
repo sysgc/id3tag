@@ -131,31 +131,6 @@ class ApplyRequest(BaseModel):
     candidate: dict
 
 
-class AlbumEditRequest(BaseModel):
-    """Request body shape for manually editing an album's artist/album name.
-
-    Attributes:
-        artist: New artist name to write to every file in the album, or
-            `None`/omitted to leave the artist tag untouched.
-        album: New album name to write to every file in the album, or
-            `None`/omitted to leave the album tag untouched.
-    """
-    artist: str | None = None
-    album: str | None = None
-
-
-class RenameRequest(BaseModel):
-    """Request body shape for manually renaming a single file.
-
-    Attributes:
-        filename: The desired filename, e.g. `"03 - Yesterday.mp3"`. Any
-            extension the caller includes is ignored — see
-            `_sanitize_manual_filename` — the file's actual extension
-            (`record["ext"]`) is always preserved unchanged.
-    """
-    filename: str
-
-
 def _hints_from_path(rel_parts: tuple) -> tuple[str | None, str | None]:
     """Derive (artist, album) hints from a file's path relative to MUSIC_DIR.
 
@@ -371,15 +346,6 @@ def get_matches(file_id: str):
 def apply_match(file_id: str, req: ApplyRequest):
     """API endpoint: approve a match for one specific song and rewrite its tags.
 
-    Doubles as the endpoint behind the UI's manual "edit song metadata"
-    inline form (the pencil icon on a song row) — there's nothing
-    search-specific about this endpoint, `req.candidate` just needs to be
-    a dict with whichever of `title`/`artist`/`album`/`date`/`track` the
-    caller wants written; a manual edit is exactly as valid a "candidate"
-    as one that came from `matchers.find_candidates`. Either way, the file
-    is renamed to match if `_build_filename` has enough information
-    (`track` and `title`) to do so.
-
     Args:
         file_id: The file's stable ID, from the URL path.
         req: The chosen candidate, as a JSON request body (see
@@ -395,52 +361,6 @@ def apply_match(file_id: str, req: ApplyRequest):
     """
     record = _get(file_id)
     return _apply_to_record(record, req.candidate)
-
-
-@app.post("/api/files/{file_id}/rename")
-def rename_file(file_id: str, req: RenameRequest):
-    """API endpoint: manually rename one file, independent of any tag match.
-
-    For the UI's "edit filename" inline form (pencil icon next to a song's
-    filename) — lets the user set a filename directly rather than only
-    ever getting one from `_build_filename`'s `"<track> - <title>
-    (qualifier)"` scheme. Useful for old/rare files with no metadata
-    service match, where the user still knows what the file should be
-    called.
-
-    Args:
-        file_id: The file's stable ID, from the URL path.
-        req: The desired filename (see `RenameRequest`).
-
-    Returns:
-        The file's updated public info (see `_public_view`).
-
-    Raises:
-        HTTPException: 404 if `file_id` isn't a known file, 400 if the
-            given filename is empty/unusable after sanitizing, 409 if
-            another file already has that name.
-    """
-    record = _get(file_id)
-    new_name = _sanitize_manual_filename(req.filename, record["ext"])
-    if not new_name:
-        raise HTTPException(400, "filename is empty or has no usable characters")
-
-    old_path = Path(record["path"])
-    if new_name == record["filename"]:
-        return _public_view(record)
-
-    new_path = old_path.parent / new_name
-    if new_path.exists():
-        raise HTTPException(409, "a file with that name already exists")
-
-    old_path.rename(new_path)
-
-    old_relpath = Path(record["relpath"])
-    new_relpath = new_name if old_relpath.parent == Path(".") else str(old_relpath.parent / new_name)
-    record["path"] = str(new_path)
-    record["relpath"] = new_relpath
-    record["filename"] = new_name
-    return _public_view(record)
 
 
 @app.get("/api/albums/{artist}/{album}/matches")
@@ -569,57 +489,6 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
     return results
 
 
-@app.post("/api/albums/{artist}/{album}/edit")
-def edit_album_metadata(artist: str, album: str, req: AlbumEditRequest):
-    """API endpoint: manually set an album's artist/album name on every file in it.
-
-    For the UI's "edit album" inline form (pencil icon next to the album
-    header) — a manual, human-typed correction, not a metadata-service
-    match. Unlike `apply_album_match`, this writes to **every** file in
-    the folder unconditionally, with no `matchers.find_track_number`
-    belonging-check: that check exists to protect against an *automated*
-    iTunes-driven bulk apply guessing wrong on a bonus/stray file, but here
-    the user has explicitly told this app what the whole folder's
-    artist/album is, which is exactly the kind of override the
-    belonging-check would otherwise get in the way of (e.g. old/rare
-    albums iTunes has no listing for at all, and so could never confirm
-    any file against). No renaming happens here — filenames aren't derived
-    from artist/album, only from `track`/`title` (see `_build_filename`),
-    neither of which this endpoint touches.
-
-    Args:
-        artist: Folder-derived artist name, from the URL path — identifies
-            the file set (see `_files_in_album`).
-        album: Folder-derived album name, from the URL path.
-        req: The new artist/album text to write (see `AlbumEditRequest`);
-            either may be omitted to leave that field untouched.
-
-    Returns:
-        A list of updated public file info dicts (see `_public_view`), one
-        per song in the album.
-
-    Raises:
-        HTTPException: 404 if no files match this artist/album pair, 400
-            if neither `artist` nor `album` was given.
-    """
-    file_ids = _files_in_album(artist, album)
-    if not file_ids:
-        raise HTTPException(404, "album not found")
-
-    fields = {k: v for k, v in {"artist": req.artist, "album": req.album}.items() if v}
-    if not fields:
-        raise HTTPException(400, "nothing to update")
-
-    results = []
-    for fid in file_ids:
-        record = FILES[fid]
-        tagging.write_tags(record["path"], fields)
-        record["tags"] = tagging.read_tags(record["path"])
-        record["status"] = "tagged"
-        results.append(_public_view(record))
-    return results
-
-
 def _apply_to_record(record: dict, candidate: dict) -> dict:
     """Rewrite tags and rename to match — the shared core of both apply endpoints.
 
@@ -713,42 +582,6 @@ def _sanitize_filename_part(s: str) -> str:
     """
     s = _ILLEGAL_FILENAME_CHARS_RE.sub("", s)
     return re.sub(r"\s+", " ", s).strip()
-
-
-def _sanitize_manual_filename(raw: str, ext: str) -> str | None:
-    """Turn user-typed filename text into a safe, extension-correct filename.
-
-    Used by the `rename_file` endpoint (the UI's manual "edit filename"
-    form) — unlike `_build_filename`, this doesn't assume any
-    `"<track> - <title>"` structure, it just takes whatever the user typed
-    for the name part.
-
-    Args:
-        raw: The filename text the user submitted, e.g. `"My Old Song"` or
-            `"My Old Song.mp3"`.
-        ext: The file's actual extension, including the dot (e.g.
-            `".mp3"`) — always wins over whatever extension (if any)
-            appears in `raw`, so a rename can never change a file's actual
-            format, only what it's called. See `_rename_to_match` for the
-            same rule applied to metadata-match-driven renames.
-
-    Returns:
-        A filename like `"My Old Song.mp3"`, or `None` if `raw` is
-        empty or made entirely of characters that aren't legal in a
-        filename (see `_sanitize_filename_part`).
-    """
-    raw = raw.strip()
-    # Only strip a trailing extension if it's *exactly* this file's real
-    # extension (case-insensitive) — using Path().suffix instead would
-    # misfire on a name like "Mr. Smith" (Path treats ".Smith" as a
-    # suffix), silently mangling a title that just happens to contain a
-    # period.
-    if raw.lower().endswith(ext.lower()):
-        raw = raw[: -len(ext)]
-    stem = _sanitize_filename_part(raw)
-    if not stem:
-        return None
-    return f"{stem}{ext}"
 
 
 def _build_filename(candidate: dict, ext: str) -> str | None:
