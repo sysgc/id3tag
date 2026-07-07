@@ -32,6 +32,12 @@ network except the metadata lookups themselves (iTunes/AcoustID API calls).
   (no track number, no title), the file is left as-is rather than guessed at.
 - **Editable search** — if the folder-derived artist/album/year guess is
   wrong, fix it right in the UI and re-search.
+- **Manual metadata/filename edits** — a pencil icon next to the album
+  header, each song's tags, and each song's filename opens an inline form
+  to type a correction directly, bypassing iTunes/AcoustID entirely. For
+  old/rare music no matching service has ever heard of, this is the way to
+  fix it — approving a match is one way to write tags, manually typing the
+  right values is another.
 - Every function in the codebase is documented; browse it at `/reference`
   in the running app (see [Code reference](#code-reference) below).
 
@@ -195,11 +201,19 @@ For deploying to a dedicated server rather than running locally, see
   then renames the file to `"<track> - <title> (qualifier).<ext>"` (e.g.
   `"03 - Yesterday (Remastered 2009).mp3"`) if there's enough information to
   build a sensible name; otherwise the filename is left as-is rather than
-  guessed at. Applying a whole album applies the shared album fields to
-  every file in the folder unconditionally — without MusicBrainz there's no
-  authoritative tracklist to check a file against, so there's no way to
-  detect a bonus/stray file that doesn't belong; keep such files in a
-  separate folder if you don't want them tagged as part of the album.
+  guessed at. Applying a whole album applies the shared album fields only to
+  files it can confirm belong to that release: each file's local title is
+  checked against iTunes via a per-song search, and a file with no title to
+  search by, or one that doesn't match a real song on the release, is left
+  completely untouched (no tag write, no rename) — so a bonus track or a
+  stray non-album file sharing the folder won't get mistagged.
+- Manual edits (pencil icons on the album header, a song's tags, or a
+  song's filename) skip iTunes/AcoustID entirely and write exactly what
+  you type — no confirmation search, no belonging-check. That's the point:
+  they're for the cases the automated matchers can't handle (an old/rare
+  release no metadata service lists), so the human typing the value *is*
+  the confirmation. A manual filename edit still always keeps the file's
+  real extension, no matter what you type.
 - No backup copies are kept — see [Why no backups](#why-no-backups).
 - The scan result is cached to `APP_DATA_DIR/library_scan.json` so page
   loads don't re-walk the disk and re-read every file's tags each time.

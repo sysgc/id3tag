@@ -257,6 +257,105 @@ input[type="search"]:focus {
   margin: 0;
 }
 
+.detail-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.detail-title-wrap h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- inline edit (pencil icons + forms) ---------- */
+
+.hidden {
+  display: none !important;
+}
+
+.edit-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.edit-btn:hover:not(:disabled) {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.filename-display {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.inline-edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+  background: var(--surface-muted);
+  border-radius: var(--radius-md);
+  padding: 0.7rem;
+  margin: 0.55rem 0;
+}
+
+.inline-edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 110px;
+}
+
+.inline-edit-form input {
+  width: 100%;
+}
+
+.edit-year-label,
+.edit-track-label {
+  flex: 0 0 80px;
+  min-width: 80px;
+}
+
+.inline-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filename-edit-form .edit-filename-input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.edit-ext {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.edit-cancel-btn {
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.edit-cancel-btn:hover:not(:disabled) {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
 .song-row {
   background: var(--surface);
   border: 1px solid var(--border);
