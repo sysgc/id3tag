@@ -416,16 +416,24 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
     Unlike the single-song `apply_match`, this updates *every* file that
     belongs to this artist/album pair in one request, applying the shared
     album-level fields (album title, artist, date, cover) to each. Each
-    file keeps its own existing `title` *and* `track` tags untouched —
-    there's no per-track tracklist to draw corrected values from (that
-    required a MusicBrainz release lookup, which this app no longer does;
-    see `matchers.py`'s module docstring). Renumbering tracks sequentially
-    from local folder order used to happen here but was removed: it
-    silently overwrote each file's real iTunes track number with its
-    position among whichever local files happened to be present, which is
-    wrong whenever the local folder is missing tracks (a gap is fine —
-    fabricating a new number to close it is not). `_track_sort_key` is
-    still used to order the returned list, not to assign track numbers.
+    file keeps its own existing `title` tag untouched — there's no
+    per-track tracklist to draw a corrected title from (that required a
+    MusicBrainz release lookup, which this app no longer does; see
+    `matchers.py`'s module docstring).
+
+    The `track` number is different: it's corrected via
+    `matchers.find_track_number`, a per-file iTunes song search keyed on
+    the file's own title plus the confirmed album/artist — iTunes'
+    `entity=song` search returns a real `trackNumber` per song even though
+    the `entity=album` search used to find this candidate doesn't. Only if
+    that lookup can't confidently match this file's title does it fall
+    back to whatever track number the file already has locally. Two
+    things this deliberately does *not* do: renumber sequentially by local
+    folder position (removed — it overwrote real iTunes numbers with a
+    file's position among whichever local files happened to exist, wrong
+    whenever the folder is missing tracks), and fabricate a number to
+    close a gap left by missing local files. `_track_sort_key` is only
+    used to order the returned list, not to assign track numbers.
 
     Note this means there's no way to detect a file that doesn't actually
     belong to the album (e.g. a bonus track, a stray non-album file in the
@@ -454,12 +462,16 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
     results = []
     for fid in ordered:
         record = FILES[fid]
+        title = record["tags"].get("title")
+        track = matchers.find_track_number(title, req.candidate.get("artist"), req.candidate.get("title"))
+        if track is None:
+            track = record["tags"].get("track")
         candidate = {
-            "title": record["tags"].get("title"),
+            "title": title,
             "artist": req.candidate.get("artist"),
             "album": req.candidate.get("title"),
             "date": req.candidate.get("date"),
-            "track": record["tags"].get("track"),
+            "track": track,
             "cover_url": req.candidate.get("cover_url"),
         }
         results.append(_apply_to_record(record, candidate))

@@ -238,6 +238,42 @@ def search_itunes(title: str, artist: str, album: str | None, limit=5) -> list[d
     return candidates
 
 
+def find_track_number(title: str | None, artist: str | None, album: str | None) -> str | None:
+    """Look up a song's real iTunes track number, for use in an album apply.
+
+    `search_release_itunes` (the album search) only gets a `trackCount`
+    from iTunes' `entity=album` results, not a per-track listing — there's
+    no MusicBrainz tracklist lookup anymore to draw individual track
+    numbers from (see the module docstring). But iTunes' `entity=song`
+    search (`search_itunes`) *does* return a `trackNumber` per matching
+    song, so a per-file song search can still recover the right number —
+    this is what `main.py`'s `apply_album_match` calls to correct a local
+    file's track tag to match iTunes, instead of trusting whatever
+    (possibly wrong) number is already on the file.
+
+    Args:
+        title: The song's title (from its own local tag) to search for.
+        artist: The confirmed album's artist, to disambiguate the search.
+        album: The confirmed album title, used to reject results from a
+            different release of the same song (e.g. a compilation) that
+            would carry a different track number.
+
+    Returns:
+        The matching iTunes track number, or `None` if `title` is empty,
+        the search fails, or no result's title *and* album both match
+        closely enough to trust (see `normalize_for_match`).
+    """
+    if not title:
+        return None
+    for r in search_itunes(title, artist, album, limit=5):
+        if normalize_for_match(r.get("title")) != normalize_for_match(title):
+            continue
+        if album and r.get("album") and normalize_for_match(r["album"]) != normalize_for_match(album):
+            continue
+        return r.get("track")
+    return None
+
+
 def fingerprint_match(filepath: str) -> list[dict]:
     """Identify a song from its audio content via AcoustID fingerprinting.
 
