@@ -416,13 +416,16 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
     Unlike the single-song `apply_match`, this updates *every* file that
     belongs to this artist/album pair in one request, applying the shared
     album-level fields (album title, artist, date, cover) to each. Each
-    file keeps its own existing `title` tag — there's no per-track
-    tracklist to draw a corrected title from (that required a MusicBrainz
-    release lookup, which this app no longer does; see `matchers.py`'s
-    module docstring). Track numbers are assigned by each file's existing
-    position (see `_track_sort_key`) — files with no track number fall
-    back to alphabetical-by-filename order, appended after any numbered
-    ones.
+    file keeps its own existing `title` *and* `track` tags untouched —
+    there's no per-track tracklist to draw corrected values from (that
+    required a MusicBrainz release lookup, which this app no longer does;
+    see `matchers.py`'s module docstring). Renumbering tracks sequentially
+    from local folder order used to happen here but was removed: it
+    silently overwrote each file's real iTunes track number with its
+    position among whichever local files happened to be present, which is
+    wrong whenever the local folder is missing tracks (a gap is fine —
+    fabricating a new number to close it is not). `_track_sort_key` is
+    still used to order the returned list, not to assign track numbers.
 
     Note this means there's no way to detect a file that doesn't actually
     belong to the album (e.g. a bonus track, a stray non-album file in the
@@ -449,14 +452,14 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
 
     ordered = sorted(file_ids, key=lambda fid: _track_sort_key(FILES[fid]))
     results = []
-    for position, fid in enumerate(ordered, start=1):
+    for fid in ordered:
         record = FILES[fid]
         candidate = {
             "title": record["tags"].get("title"),
             "artist": req.candidate.get("artist"),
             "album": req.candidate.get("title"),
             "date": req.candidate.get("date"),
-            "track": str(position),
+            "track": record["tags"].get("track"),
             "cover_url": req.candidate.get("cover_url"),
         }
         results.append(_apply_to_record(record, candidate))

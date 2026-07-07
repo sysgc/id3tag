@@ -265,10 +265,13 @@ def fingerprint_match(filepath: str) -> list[dict]:
         A list of candidate dicts, one per AcoustID match, sorted
         best-first by AcoustID's own match score (converted to our 0-100
         `confidence` scale). `album`, `date`, and `cover_url` are always
-        `None` (see above — no MusicBrainz enrichment call is made).
-        Returns `[]` if fingerprinting isn't configured, or if it fails
-        for any reason (e.g. the `fpcalc` binary isn't installed, or the
-        file is silent/too short to fingerprint).
+        `None` here (see above — no MusicBrainz enrichment call is made in
+        *this* function) — `find_candidates` backfills them with a
+        follow-up iTunes text search before returning candidates to the
+        caller, so callers of `find_candidates` will usually see them
+        filled in. Returns `[]` if fingerprinting isn't configured, or if
+        it fails for any reason (e.g. the `fpcalc` binary isn't installed,
+        or the file is silent/too short to fingerprint).
     """
     if not ACOUSTID_API_KEY:
         return []
@@ -418,7 +421,10 @@ def find_candidates(filepath: str, current_tags: dict, album_hint: str | None = 
     their results into one ranked list:
 
     1. `fingerprint_match` — audio fingerprinting via AcoustID (only if
-       configured).
+       configured). Any resulting candidate missing an `album` is
+       backfilled with one more iTunes text search, keyed on the
+       title/artist AcoustID identified (see the loop right after this
+       call).
     2. `search_itunes` — text search using the file's existing tags.
 
     Args:
@@ -441,6 +447,24 @@ def find_candidates(filepath: str, current_tags: dict, album_hint: str | None = 
     """
     album_for_query = current_tags.get("album") or album_hint
     candidates = fingerprint_match(filepath)
+
+    # fingerprint_match never fills in album/date/cover_url (see its
+    # docstring — no MusicBrainz release lookup). Back them in with a
+    # follow-up iTunes text search keyed on the title/artist AcoustID
+    # identified, not the file's own (possibly wrong) tags — this is the
+    # case fingerprinting exists for: a file whose local tags can't be
+    # trusted to search by. Approving an AcoustID candidate should still
+    # be able to fix the album tag, not silently leave it untouched.
+    for c in candidates:
+        if c.get("album") or not (c.get("title") and c.get("artist")):
+            continue
+        enrichment = search_itunes(c["title"], c["artist"], None, limit=1)
+        if enrichment:
+            best = enrichment[0]
+            c["album"] = best.get("album")
+            c["date"] = best.get("date")
+            c["cover_url"] = best.get("cover_url")
+
     candidates += search_itunes(current_tags.get("title"), current_tags.get("artist"), album_for_query)
 
     if album_hint:
