@@ -1,0 +1,12 @@
+services:
+  app:
+    image: ghcr.io/sysgc/id3tag:latest
+    build: ./app
+    environment:
+      - ACOUSTID_API_KEY=${ACOUSTID_API_KEY:-}
+    ports:
+      - "${HOST_PORT:-8080}:8000"
+    volumes:
+      - ${APP_DATA_DIR}:/data
+      - ${MUSIC_DIR}:/music
+    restart: unless-stopped

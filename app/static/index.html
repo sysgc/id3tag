@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>id3tag</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>id3tag</h1>
+    <p class="subtitle">Match your library against iTunes, approve changes, tag in place.</p>
+  </div>
+  <div class="topbar-actions">
+    <a class="docs-link" href="/reference/" target="_blank" rel="noopener">Docs</a>
+    <button id="scan-btn">Scan library</button>
+    <span id="scan-status"></span>
+  </div>
+</header>
+
+<main class="layout">
+  <aside id="album-col">
+    <h2>Albums</h2>
+    <input type="search" id="album-search" placeholder="Search artist or album…">
+    <div id="album-list"></div>
+  </aside>
+
+  <section id="detail-col">
+    <div id="detail-empty" class="placeholder">Select an album to see its tracks.</div>
+  </section>
+
+  <section id="matches-col">
+    <div id="matches-empty" class="placeholder">Matches will show up here once you search.</div>
+  </section>
+</main>
+
+<template id="artist-header-template">
+  <div class="artist-header"></div>
+</template>
+
+<template id="album-item-template">
+  <div class="album-item">
+    <div class="album-item-name"></div>
+    <div class="album-item-count"></div>
+  </div>
+</template>
+
+<template id="song-row-template">
+  <div class="song-row">
+    <div class="song-row-header">
+      <span class="filename"></span>
+      <span class="duration"></span>
+      <span class="status-badge"></span>
+      <button class="find-song-match-btn">Find match</button>
+    </div>
+    <div class="current-tags"></div>
+    <details class="all-tags">
+      <summary>All tags (raw)</summary>
+      <div class="all-tags-body"></div>
+    </details>
+  </div>
+</template>
+
+<template id="candidate-template">
+  <div class="candidate-card">
+    <img class="cover" src="" alt="cover">
+    <div class="candidate-info">
+      <div class="source-badge"></div>
+      <div class="title"></div>
+      <div class="artist"></div>
+      <div class="album-line"></div>
+      <div class="year-line"></div>
+      <details class="raw-tags">
+        <summary>All tags (raw)</summary>
+        <div class="raw-tags-body"></div>
+      </details>
+    </div>
+    <button class="approve-btn">Approve</button>
+  </div>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
