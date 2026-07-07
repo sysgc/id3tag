@@ -1,7 +1,6 @@
 services:
   app:
     image: ghcr.io/sysgc/id3tag:latest
-    build: ./app
     environment:
       - ACOUSTID_API_KEY=${ACOUSTID_API_KEY:-}
     ports:
