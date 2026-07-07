@@ -232,6 +232,7 @@ def search_itunes(title: str, artist: str, album: str | None, limit=5) -> list[d
             "mb_release_id": None,
             "mb_artist_id": None,
             "itunes_id": item.get("trackId"),
+            "itunes_url": item.get("collectionViewUrl"),
             "cover_url": artwork,
             "raw": item,
         })
@@ -331,6 +332,7 @@ def fingerprint_match(filepath: str) -> list[dict]:
             "mb_release_id": None,
             "mb_artist_id": None,
             "cover_url": None,
+            "itunes_url": None,
             "raw": {"acoustid_score": score, "recording_id": recording_id,
                     "title": title, "artist": artist},
         })
@@ -380,6 +382,7 @@ def search_release_itunes(album: str, artist: str | None = None, limit=5) -> lis
             "track_count": item.get("trackCount"),
             "mb_release_id": None,
             "itunes_collection_id": item.get("collectionId"),
+            "itunes_url": item.get("collectionViewUrl"),
             "cover_url": artwork,
             "raw": item,
         })
@@ -484,8 +487,8 @@ def find_candidates(filepath: str, current_tags: dict, album_hint: str | None = 
     album_for_query = current_tags.get("album") or album_hint
     candidates = fingerprint_match(filepath)
 
-    # fingerprint_match never fills in album/date/cover_url (see its
-    # docstring — no MusicBrainz release lookup). Back them in with a
+    # fingerprint_match never fills in album/date/cover_url/itunes_url (see
+    # its docstring — no MusicBrainz release lookup). Back them in with a
     # follow-up iTunes text search keyed on the title/artist AcoustID
     # identified, not the file's own (possibly wrong) tags — this is the
     # case fingerprinting exists for: a file whose local tags can't be
@@ -500,6 +503,7 @@ def find_candidates(filepath: str, current_tags: dict, album_hint: str | None = 
             c["album"] = best.get("album")
             c["date"] = best.get("date")
             c["cover_url"] = best.get("cover_url")
+            c["itunes_url"] = best.get("itunes_url")
 
     candidates += search_itunes(current_tags.get("title"), current_tags.get("artist"), album_for_query)
 

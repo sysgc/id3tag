@@ -407,6 +407,12 @@ function renderMatchesColumn({ title, candidates, onApprove, editableSearch }) {
     el.querySelector(".artist").textContent = c.artist || "—";
     el.querySelector(".album-line").textContent = [c.album, c.track_count ? `${c.track_count} tracks` : null].filter(Boolean).join(" · ");
     el.querySelector(".year-line").textContent = `Year: ${(c.date || "").slice(0, 4) || "—"}`;
+    const link = el.querySelector(".itunes-link");
+    if (c.itunes_url) {
+      link.href = c.itunes_url;
+    } else {
+      link.style.display = "none";
+    }
     el.querySelector(".raw-tags-body").innerHTML = renderTagTable(c.raw);
     el.querySelector(".approve-btn").addEventListener("click", () => onApprove(c));
     candidatesList.appendChild(el);

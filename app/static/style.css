@@ -403,6 +403,18 @@ input[type="search"]:focus {
   font-size: 0.8rem;
 }
 
+.itunes-link {
+  display: inline-block;
+  font-size: 0.78rem;
+  color: var(--accent-strong);
+  text-decoration: none;
+  margin-top: 0.2rem;
+}
+
+.itunes-link:hover {
+  text-decoration: underline;
+}
+
 .error {
   color: var(--danger);
   font-size: 0.85rem;
