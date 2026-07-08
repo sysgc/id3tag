@@ -10,9 +10,10 @@ network except the metadata lookups themselves (iTunes/AcoustID API calls).
 
 ## Features
 
-- **Reads and writes mp3, flac, and m4a** tags (via
-  [mutagen](https://mutagen.readthedocs.io/)) — title, artist, album, year,
-  track number, and cover art.
+- **Reads and writes mp3, flac, m4a (AAC/ALAC), ogg (Vorbis), opus, wma,
+  wav, and aiff** tags (via [mutagen](https://mutagen.readthedocs.io/)) —
+  title, artist, album, year, track number, and cover art, regardless of
+  which of those formats a given file is.
 - **Two ways to find a match**: text search against iTunes, and (optional)
   AcoustID audio fingerprinting for files with missing or wrong tags. (See
   [Why no MusicBrainz](#why-no-musicbrainz) — it was tried and removed.)
@@ -44,7 +45,8 @@ network except the metadata lookups themselves (iTunes/AcoustID API calls).
 ## Requirements
 
 - Docker + Docker Compose
-- A folder of mp3/flac/m4a files, ideally laid out as `Artist/Album/track.ext`
+- A folder of mp3/flac/m4a/ogg/opus/wma/wav/aiff files, ideally laid out as
+  `Artist/Album/track.ext`
 - (optional) a free [AcoustID API key](https://acoustid.org/api-key), for
   audio-fingerprint matching
 
@@ -197,8 +199,13 @@ For deploying to a dedicated server rather than running locally, see
   merged and sorted by confidence. Genre is intentionally never looked up,
   matched, or written — out of scope for this tool. MusicBrainz is
   intentionally not used at all — see [Why no MusicBrainz](#why-no-musicbrainz).
-- Apply writes ID3v2.4 for mp3, Vorbis comments for flac, MP4 atoms for m4a,
-  then renames the file to `"<track> - <title> (qualifier).<ext>"` (e.g.
+- Apply writes ID3v2.4 for mp3/wav/aiff, Vorbis comments for flac/ogg/opus,
+  MP4 atoms for m4a, and ASF attributes for wma — each format's native tag
+  system, not a lowest-common-denominator subset. Cover art is embedded the
+  same way: natively where the format supports it, and via the
+  Picard/foobar2000-style `metadata_block_picture` convention for ogg/opus,
+  which have no native picture block of their own. Then renames the file to
+  `"<track> - <title> (qualifier).<ext>"` (e.g.
   `"03 - Yesterday (Remastered 2009).mp3"`) if there's enough information to
   build a sensible name; otherwise the filename is left as-is rather than
   guessed at. Applying a whole album checks each file's local title against

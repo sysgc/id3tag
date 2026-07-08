@@ -68,9 +68,13 @@ next time the server starts (or a browser tab loads the page) it doesn't
 have to re-walk the whole music folder and re-read every file's tags —
 see `_save_cache` / `_load_cache`."""
 
-ALLOWED_EXT = {".mp3", ".flac", ".m4a"}
+ALLOWED_EXT = {".mp3", ".flac", ".m4a", ".ogg", ".oga", ".opus", ".wma", ".wav", ".aiff", ".aif"}
 """File extensions this app knows how to read/write tags for (must match
-what `tagging.py` supports). Anything else found while scanning the music
+what `tagging.py` supports). `.m4a` covers both AAC and ALAC — mutagen's
+tag-level API doesn't distinguish them, since ALAC-in-MP4 uses the same
+atom structure as AAC-in-MP4, just a different codec fourcc the tag layer
+never touches, so there's no separate `.alac` extension to list here.
+Anything else found while scanning the music
 folder — cover art images, `.nfo` files, playlists, etc. — is silently
 skipped."""
 
