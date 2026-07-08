@@ -239,6 +239,25 @@ def search_itunes(title: str, artist: str, album: str | None, limit=5) -> list[d
     return candidates
 
 
+_TRACK_TITLE_MATCH_THRESHOLD = 0.72
+"""Minimum `album_similarity`-style ratio between a file's local title and
+an iTunes song search result's title for `find_track_number` to trust that
+result. Loose exact-equality matching used to live here, but real-world
+titles routinely differ from iTunes' own text in ways that are still
+obviously "the same song" — a `"(Version 1)"`/`"(Remastered)"` suffix a
+local tagger added, transliteration spelling variance on non-English
+titles, curly vs straight apostrophes, etc. A fuzzy threshold catches those
+while still rejecting an actually-different song."""
+
+_TRACK_ALBUM_MATCH_THRESHOLD = 0.45
+"""Same idea as `_TRACK_TITLE_MATCH_THRESHOLD`, but looser, for the album
+name — album titles vary even more between a local tag and iTunes'
+listing (edition/soundtrack-label suffixes, punctuation), and the title
+match above is already doing most of the work of confirming this is the
+right song; the album check here is just a sanity check against confusing
+this song with a same-named track on a *different* release."""
+
+
 def find_track_number(title: str | None, artist: str | None, album: str | None) -> str | None:
     """Look up a song's real iTunes track number, for use in an album apply.
 
@@ -252,27 +271,41 @@ def find_track_number(title: str | None, artist: str | None, album: str | None) 
     file's track tag to match iTunes, instead of trusting whatever
     (possibly wrong) number is already on the file.
 
+    Matching is fuzzy (see `_TRACK_TITLE_MATCH_THRESHOLD`/
+    `_TRACK_ALBUM_MATCH_THRESHOLD`), not exact-equality — an earlier version
+    required a byte-for-byte match (after `normalize_for_match`), which
+    real-world tags routinely failed on (a `"(Version 1)"` suffix, a
+    transliteration spelling difference on a non-English title, an edition
+    suffix on the album) even when the song was unambiguously the right
+    one, causing most of an album's files to get silently skipped by
+    `apply_album_match`'s belonging-check instead of tagged.
+
     Args:
         title: The song's title (from its own local tag) to search for.
         artist: The confirmed album's artist, to disambiguate the search.
-        album: The confirmed album title, used to reject results from a
-            different release of the same song (e.g. a compilation) that
-            would carry a different track number.
+        album: The confirmed album title, used to deprioritize results
+            from a different release of the same song (e.g. a compilation)
+            that would carry a different track number.
 
     Returns:
-        The matching iTunes track number, or `None` if `title` is empty,
-        the search fails, or no result's title *and* album both match
-        closely enough to trust (see `normalize_for_match`).
+        The best-title-matching iTunes result's track number, or `None` if
+        `title` is empty, the search fails, or no result's title (and,
+        loosely, album) is a close enough fuzzy match to trust.
     """
     if not title:
         return None
+    best_track, best_score = None, 0.0
     for r in search_itunes(title, artist, album, limit=5):
-        if normalize_for_match(r.get("title")) != normalize_for_match(title):
+        title_score = album_similarity(title, r.get("title"))
+        if title_score < _TRACK_TITLE_MATCH_THRESHOLD:
             continue
-        if album and r.get("album") and normalize_for_match(r["album"]) != normalize_for_match(album):
-            continue
-        return r.get("track")
-    return None
+        if album and r.get("album"):
+            album_score = album_similarity(strip_edition_suffix(album), strip_edition_suffix(r["album"]))
+            if album_score < _TRACK_ALBUM_MATCH_THRESHOLD:
+                continue
+        if title_score > best_score:
+            best_track, best_score = r.get("track"), title_score
+    return best_track
 
 
 def fingerprint_match(filepath: str) -> list[dict]:

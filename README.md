@@ -201,12 +201,14 @@ For deploying to a dedicated server rather than running locally, see
   then renames the file to `"<track> - <title> (qualifier).<ext>"` (e.g.
   `"03 - Yesterday (Remastered 2009).mp3"`) if there's enough information to
   build a sensible name; otherwise the filename is left as-is rather than
-  guessed at. Applying a whole album applies the shared album fields only to
-  files it can confirm belong to that release: each file's local title is
-  checked against iTunes via a per-song search, and a file with no title to
-  search by, or one that doesn't match a real song on the release, is left
-  completely untouched (no tag write, no rename) — so a bonus track or a
-  stray non-album file sharing the folder won't get mistagged.
+  guessed at. Applying a whole album checks each file's local title against
+  iTunes via a fuzzy per-song search to recover its real track number; a
+  file with **no local title at all** is left completely untouched (no tag
+  write, no rename) — so a bonus track or a stray non-album file sharing
+  the folder won't get mistagged — while a file that already has a local
+  title just falls back to whatever track number it already has if iTunes
+  can't confidently confirm one, since a file the user can already see is
+  tagged is one they've effectively already confirmed belongs there.
 - Manual edits (pencil icons on the album header, a song's tags, or a
   song's filename) skip iTunes/AcoustID entirely and write exactly what
   you type — no confirmation search, no belonging-check. That's the point:

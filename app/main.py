@@ -501,27 +501,36 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
     MusicBrainz release lookup, which this app no longer does; see
     `matchers.py`'s module docstring).
 
-    "Confirmed to belong" is decided per-file by `matchers.find_track_number`
-    — a per-file iTunes song search keyed on the file's own title plus the
-    confirmed album/artist. iTunes' `entity=song` search returns a real
-    `trackNumber` per song even though the `entity=album` search used to
-    find this candidate doesn't, and (just as importantly) only returns one
-    when that file's title and album both normalize-match a real song on
-    this release. If a file has no local `title` tag to search by, or its
-    title/album can't be confidently matched against this release, that
-    file is **skipped entirely** — no tag write, no rename — rather than
-    guessing it belongs. This is what makes it safe to approve an album
-    match without first manually checking the folder for a bonus track or
-    an unrelated stray file: anything iTunes can't confirm is left alone.
+    Track numbers come from `matchers.find_track_number` when possible — a
+    per-file, fuzzy-matched iTunes song search keyed on the file's own
+    title plus the confirmed album/artist. iTunes' `entity=song` search
+    returns a real `trackNumber` per song even though the `entity=album`
+    search used to find this candidate doesn't. Two outcomes when that
+    lookup can't confirm a track number:
 
-    Two things this deliberately does *not* do: fall back to a file's
-    existing local track tag when the iTunes lookup fails (removed —
-    trusting an unconfirmed local number is exactly the "might not belong"
-    case this is meant to catch), and renumber sequentially by local folder
-    position (also removed — it overwrote real iTunes numbers with a
-    file's position among whichever local files happened to exist, wrong
-    whenever the folder is missing tracks). `_track_sort_key` is only used
-    to order iteration/results, not to assign track numbers.
+    - The file has **no local `title`** to search by at all: it's
+      **skipped entirely** — no tag write, no rename. There's nothing to
+      confirm it against the release with and nothing to build a filename
+      from, so this is also the one case that protects against a bonus
+      track or stray non-album file sharing the folder getting mistagged.
+    - The file **already has a local title** (the common case for a
+      library that's been at least loosely tagged before): falls back to
+      whatever track number is already on the file. A file the user can
+      see already has a title and track filled in is, in practice, a file
+      they already trust belongs here — refusing to write the shared
+      album fields to it just because iTunes' own text doesn't
+      byte-for-byte match a possibly non-English or annotated local title
+      (`"(Version 1)"`, transliteration spelling, etc.) made the core
+      "approve an album match" feature silently do almost nothing on
+      real-world libraries. See `find_track_number`'s docstring for the
+      fuzzy-matching thresholds that now also reduce how often this
+      fallback is needed in the first place.
+
+    This deliberately does *not* renumber sequentially by local folder
+    position (removed — it overwrote real iTunes numbers with a file's
+    position among whichever local files happened to exist, wrong whenever
+    the folder is missing tracks). `_track_sort_key` is only used to order
+    iteration/results, not to assign track numbers.
 
     Args:
         artist: Folder-derived artist name, from the URL path — identifies
@@ -531,10 +540,11 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
 
     Returns:
         A list of public file info dicts (see `_public_view`), one per
-        song in the album. Files confirmed to belong have freshly-written
-        tags and (if renamed) an updated `filename`; files that couldn't be
-        confirmed are returned unchanged, exactly as they were before this
-        request.
+        song in the album. Files that got tagged (whether iTunes confirmed
+        the track number or the local-title fallback applied — see above)
+        have freshly-written tags and, if renamed, an updated `filename`;
+        the one skipped case (no local title at all) is returned unchanged,
+        exactly as it was before this request.
 
     Raises:
         HTTPException: 404 if no files match this artist/album pair.
@@ -550,13 +560,23 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
         title = record["tags"].get("title")
         track = matchers.find_track_number(title, req.candidate.get("artist"), req.candidate.get("title"))
         if track is None:
-            # Couldn't confirm this file's title against a real song on
-            # this release — it may be a bonus track, a stray non-album
-            # file sharing the folder, or just missing a local title tag
-            # to search by. Leave its tags and filename untouched rather
-            # than guess it belongs.
-            results.append(_public_view(record))
-            continue
+            if not title:
+                # No local title to search by at all — nothing to confirm
+                # this file against the release with, and nothing to build
+                # a filename from either. Leave it completely untouched
+                # rather than guess it belongs.
+                results.append(_public_view(record))
+                continue
+            # Has a local title already, but iTunes' per-song search
+            # couldn't confidently confirm it against this release (common
+            # for non-English/transliterated titles, or a local
+            # "(Version 1)"-style suffix iTunes' own listing doesn't have).
+            # The file already carries a title and (usually) a track
+            # number a human entered/trusted, so fall back to that rather
+            # than refuse to tag a file the user can plainly see belongs
+            # here — this is different from the "no title at all" case
+            # above, where there's nothing to fall back to.
+            track = record["tags"].get("track")
         candidate = {
             "title": title,
             "artist": req.candidate.get("artist"),
