@@ -155,7 +155,15 @@ input[type="search"]:focus {
 
 .layout {
   display: grid;
-  grid-template-columns: 260px 1fr 1fr;
+  /* minmax(0, 1fr), not bare 1fr — a plain 1fr track's implicit minimum
+     width is "auto", which is its content's min-content size. A single
+     long, unbreakable filename (no spaces to wrap on) then has a
+     min-content width equal to its full rendered width, which forces the
+     whole track (and everything after it) wider than the viewport instead
+     of letting the filename ellipsis-truncate. minmax(0, 1fr) removes that
+     implicit floor so the column can actually shrink to the space it's
+     given. */
+  grid-template-columns: 260px minmax(0, 1fr) minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -163,6 +171,7 @@ input[type="search"]:focus {
 #album-col,
 #detail-col,
 #matches-col {
+  min-width: 0; /* same reasoning as .layout above, at the grid-item level */
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -265,6 +274,8 @@ input[type="search"]:focus {
 }
 
 .detail-title-wrap h2 {
+  flex: 1;
+  min-width: 0; /* same min-content-floor issue as .layout above, one level down: h2 is itself a flex item of .detail-title-wrap */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -575,7 +586,7 @@ details summary:hover {
 
 @media (max-width: 1000px) {
   .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .topbar {
