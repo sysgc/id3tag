@@ -668,11 +668,20 @@ def _apply_to_record(record: dict, candidate: dict) -> dict:
     Side effects:
         - Overwrites the audio file at `record["path"]` with new tags.
         - May rename the file on disk (see `_rename_to_match`).
-        - Mutates `record` in place (`tags`, `status`, `applied`, and if
-          renamed, `path`/`relpath`/`filename` keys).
+        - Mutates `record` in place: `tags` is always refreshed from disk
+          (even if `_verify_write` then raises — it reflects whatever
+          actually ended up on disk, which is worth keeping either way),
+          and if renamed, so are `path`/`relpath`/`filename`. `status` and
+          `applied` are only set to `"tagged"`/the candidate if
+          `_verify_write` doesn't raise.
 
     Returns:
         The updated record's public info (see `_public_view`).
+
+    Raises:
+        HTTPException: 500, via `_verify_write`, if a field this call
+            asked to write still reads back empty afterward — see that
+            function's docstring.
     """
     path = record["path"]
 
@@ -693,9 +702,79 @@ def _apply_to_record(record: dict, candidate: dict) -> dict:
     # this is the "force a re-read" step that guarantees what the UI shows
     # next is what's actually in the file, not just what we asked to write.
     record["tags"] = tagging.read_tags(record["path"])
+    _verify_write(record["path"], candidate, record["tags"])
     record["status"] = "tagged"
     record["applied"] = candidate
     return _public_view(record)
+
+
+def _tag_value_matches(wanted, got) -> bool:
+    """Loosely compare a requested tag value against what got read back.
+
+    Not a byte-for-byte equality check on purpose: a genuinely successful
+    write can still read back slightly differently formatted (a `track`
+    of `"3"` written, then read back as `"3"` on mp3/flac but iTunes-style
+    `"3/12"` was never sent so that's moot; an ID3 `TDRC` timestamp that
+    mutagen normalizes). Case/whitespace-insensitive equality, plus a
+    "one starts with the other" fallback, covers those benign cases while
+    still catching the actual failure shape this exists to catch: the
+    field reading back as the *old* value because the write silently did
+    nothing (a plain non-empty check alone would miss that — an old,
+    still-truthy value looks "written" too).
+
+    Args:
+        wanted: The value from `candidate` that was supposed to be written
+            (may be `None`/falsy, meaning "nothing was requested here").
+        got: The corresponding value from `tagging.read_tags` after the
+            write.
+
+    Returns:
+        `True` if `wanted` is falsy (nothing to check) or `got` matches it
+        closely enough to trust; `False` otherwise.
+    """
+    if not wanted:
+        return True
+    if not got:
+        return False
+    w, g = str(wanted).strip().casefold(), str(got).strip().casefold()
+    return w == g or g.startswith(w) or w.startswith(g)
+
+
+def _verify_write(path: str, candidate: dict, tags_after: dict) -> None:
+    """Raise if a field we just asked to write doesn't actually show up on disk.
+
+    `_apply_to_record` used to mark a file `"tagged"` purely because
+    `tagging.write_tags` didn't raise and a re-read succeeded — but neither
+    of those actually proves the new values landed on disk. Reported as:
+    the UI says "tagged", but an external tool (Plex) never picked up the
+    change. An earlier version of this check only confirmed the field
+    wasn't *empty* after the write — which missed the exact failure shape
+    that matters most: a field that already had an old value stays exactly
+    that old value because the write silently no-opped, and "old truthy
+    value" passes an empty-check just fine. This compares against what was
+    actually requested instead (see `_tag_value_matches`).
+
+    Args:
+        path: The file path, for the error message only.
+        candidate: The dict passed to `tagging.write_tags` — same keys
+            (`title`, `artist`, `album`, `date`, `track`) it recognizes.
+        tags_after: The dict from `tagging.read_tags`, read immediately
+            after the write (and any rename) completed.
+
+    Raises:
+        HTTPException: 500, if any field `candidate` had a truthy value
+            for doesn't closely match what's now on disk — surfaces as a
+            real "Apply failed" error in the UI instead of a silent,
+            incorrect "tagged" status.
+    """
+    mismatched = [k for k in ("title", "artist", "album", "date", "track")
+                  if not _tag_value_matches(candidate.get(k), tags_after.get(k))]
+    if mismatched:
+        raise HTTPException(
+            500,
+            f"wrote {', '.join(mismatched)} to {path} but re-reading the file back doesn't "
+            "show the new value — the write did not actually take effect on disk",
+        )
 
 
 _LEADING_TRACK_NUM_RE = re.compile(r"^\s*\d{1,3}[.\-)]?\s+")

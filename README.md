@@ -209,6 +209,12 @@ For deploying to a dedicated server rather than running locally, see
   title just falls back to whatever track number it already has if iTunes
   can't confidently confirm one, since a file the user can already see is
   tagged is one they've effectively already confirmed belongs there.
+- Every apply (song or album) verifies the write actually landed before
+  reporting success: it re-reads the file straight from disk and checks
+  the new values are really there, not just that `mutagen` didn't raise.
+  If a field doesn't show up, the request fails loudly instead of the UI
+  quietly claiming "tagged" while the file (and anything reading it, like
+  Plex) still shows the old data.
 - Manual edits (pencil icons on the album header, a song's tags, or a
   song's filename) skip iTunes/AcoustID entirely and write exactly what
   you type — no confirmation search, no belonging-check. That's the point:
