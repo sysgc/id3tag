@@ -12,8 +12,16 @@ network except the metadata lookups themselves (iTunes/AcoustID API calls).
 
 - **Reads and writes mp3, flac, m4a (AAC/ALAC), ogg (Vorbis), opus, wma,
   wav, and aiff** tags (via [mutagen](https://mutagen.readthedocs.io/)) —
-  title, artist, album, year, track number, and cover art, regardless of
-  which of those formats a given file is.
+  title, artist, album artist, album, year, track number, and cover art,
+  regardless of which of those formats a given file is.
+- **Artist and album artist are separate fields**, correctly: on a
+  compilation or soundtrack, the album can be credited to one name (a
+  composer, or the headline artist) while each song has its own performer.
+  Approving an album match only ever writes the album's own credit into
+  `album_artist`; a track's `artist` tag is only touched when this app can
+  independently confirm that specific song's own performer via a
+  per-track iTunes search — it's never overwritten with the album's
+  artist just because that's what's easiest.
 - **Two ways to find a match**: text search against iTunes, and (optional)
   AcoustID audio fingerprinting for files with missing or wrong tags. (See
   [Why no MusicBrainz](#why-no-musicbrainz) — it was tried and removed.)
@@ -209,13 +217,17 @@ For deploying to a dedicated server rather than running locally, see
   `"03 - Yesterday (Remastered 2009).mp3"`) if there's enough information to
   build a sensible name; otherwise the filename is left as-is rather than
   guessed at. Applying a whole album checks each file's local title against
-  iTunes via a fuzzy per-song search to recover its real track number; a
-  file with **no local title at all** is left completely untouched (no tag
-  write, no rename) — so a bonus track or a stray non-album file sharing
-  the folder won't get mistagged — while a file that already has a local
-  title just falls back to whatever track number it already has if iTunes
-  can't confidently confirm one, since a file the user can already see is
-  tagged is one they've effectively already confirmed belongs there.
+  iTunes via a fuzzy per-song search to recover its real track number *and*
+  that specific song's own artist credit; a file with **no local title at
+  all** is left completely untouched (no tag write, no rename) — so a
+  bonus track or a stray non-album file sharing the folder won't get
+  mistagged — while a file that already has a local title falls back to
+  whatever track number it already has if iTunes can't confidently confirm
+  one (a file the user can already see is tagged is one they've
+  effectively already confirmed belongs there), but its `artist` tag is
+  left alone either way unless iTunes actually confirmed a per-song
+  credit — the album's own artist only ever goes into `album_artist`,
+  never stamped onto every track's `artist` as a guess.
 - Every apply (song or album) verifies the write actually landed before
   reporting success: it re-reads the file straight from disk and checks
   the new values are really there, not just that `mutagen` didn't raise.

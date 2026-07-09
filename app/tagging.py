@@ -51,7 +51,7 @@ import base64
 import os
 import struct
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TRCK, APIC, TXXX, ID3NoHeaderError
+from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TDRC, TRCK, APIC, TXXX, ID3NoHeaderError
 from mutagen.flac import FLAC, Picture
 from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 from mutagen.wave import WAVE
@@ -95,8 +95,9 @@ has a native picture block the way flac does, so tools that support cover art
 on them (this app, Picard, foobar2000, ...) all use this same convention: a
 base64-encoded flac-style `Picture` block stored as a regular comment field."""
 
-WM_TITLE_ATTR, WM_ARTIST_ATTR, WM_ALBUM_ATTR, WM_YEAR_ATTR, WM_TRACK_ATTR, WM_GENRE_ATTR = (
-    "Title", "Author", "WM/AlbumTitle", "WM/Year", "WM/TrackNumber", "WM/Genre",
+(WM_TITLE_ATTR, WM_ARTIST_ATTR, WM_ALBUM_ARTIST_ATTR, WM_ALBUM_ATTR,
+ WM_YEAR_ATTR, WM_TRACK_ATTR, WM_GENRE_ATTR) = (
+    "Title", "Author", "WM/AlbumArtist", "WM/AlbumTitle", "WM/Year", "WM/TrackNumber", "WM/Genre",
 )
 """ASF (wma) attribute names for the fields this app understands. `Title`/`Author`
 are ASF's own generic content-description attributes; the rest are Microsoft's
@@ -137,7 +138,14 @@ def read_tags(path: str) -> dict:
         A dict with these keys:
 
         - `title` (str | None): track title.
-        - `artist` (str | None): track artist.
+        - `artist` (str | None): track artist — the performer of *this
+          specific song* (e.g. a featured singer), which on a compilation
+          or soundtrack can differ from `album_artist` below.
+        - `album_artist` (str | None): the album's own artist credit (e.g.
+          a composer, or the headline artist a variety-of-performers
+          release is filed under). Distinct from `artist` on purpose — see
+          `main.py`'s `apply_album_match` for why conflating the two was a
+          real bug.
         - `album` (str | None): album name.
         - `date` (str | None): release date/year, as stored in the file
           (format varies — could be `"2020"` or `"2020-05-01"`).
@@ -198,6 +206,7 @@ def _read_mp3(path: str) -> dict:
     tags = {
         "title": _mp3_frame(id3, "TIT2"),
         "artist": _mp3_frame(id3, "TPE1"),
+        "album_artist": _mp3_frame(id3, "TPE2"),
         "album": _mp3_frame(id3, "TALB"),
         "date": _mp3_frame(id3, "TDRC"),
         "track": _mp3_frame(id3, "TRCK"),
@@ -285,6 +294,7 @@ def _read_flac(path: str) -> dict:
     return {
         "title": first("title"),
         "artist": first("artist"),
+        "album_artist": first("albumartist"),
         "album": first("album"),
         "date": first("date"),
         "track": first("tracknumber"),
@@ -328,6 +338,7 @@ def _read_m4a(path: str) -> dict:
     return {
         "title": first("\xa9nam"),
         "artist": first("\xa9ART"),
+        "album_artist": first("aART"),
         "album": first("\xa9alb"),
         "date": first("\xa9day"),
         "track": track,
@@ -382,8 +393,12 @@ def write_tags(path: str, candidate: dict, cover_bytes: bytes | None = None) -> 
     Args:
         path: Absolute filesystem path to the audio file to update.
         candidate: Dict of new metadata to write. Recognized keys:
-            `title`, `artist`, `album`, `date`, `track`,
-            `mb_recording_id`, `mb_release_id`, `mb_artist_id`. Any key
+            `title`, `artist`, `album_artist`, `album`, `date`, `track`,
+            `mb_recording_id`, `mb_release_id`, `mb_artist_id`. `artist`
+            and `album_artist` are deliberately separate fields — see
+            `main.py`'s `apply_album_match` for why writing an album's
+            artist onto every track's `artist` tag is a bug, not a
+            simplification. Any key
             that's missing or falsy (`None`, `""`) is simply left
             untouched — this function only ever adds/overwrites fields
             it has a real value for, it never blanks out a field.
@@ -438,6 +453,7 @@ def _write_mp3(path: str, c: dict, cover_bytes: bytes | None) -> None:
 
     set_text("TIT2", TIT2, c.get("title"))
     set_text("TPE1", TPE1, c.get("artist"))
+    set_text("TPE2", TPE2, c.get("album_artist"))
     set_text("TALB", TALB, c.get("album"))
     set_text("TDRC", TDRC, c.get("date"))
     set_text("TRCK", TRCK, c.get("track"))
@@ -476,6 +492,7 @@ def _write_flac(path: str, c: dict, cover_bytes: bytes | None) -> None:
 
     set_field("title", c.get("title"))
     set_field("artist", c.get("artist"))
+    set_field("albumartist", c.get("album_artist"))
     set_field("album", c.get("album"))
     set_field("date", c.get("date"))
     set_field("tracknumber", c.get("track"))
@@ -516,6 +533,7 @@ def _write_m4a(path: str, c: dict, cover_bytes: bytes | None) -> None:
 
     set_field("\xa9nam", c.get("title"))
     set_field("\xa9ART", c.get("artist"))
+    set_field("aART", c.get("album_artist"))
     set_field("\xa9alb", c.get("album"))
     set_field("\xa9day", c.get("date"))
     # genre is deliberately never written — out of scope for this tool
@@ -568,6 +586,7 @@ def _read_id3_container(path: str, audio_cls) -> dict:
     return {
         "title": _mp3_frame(id3, "TIT2"),
         "artist": _mp3_frame(id3, "TPE1"),
+        "album_artist": _mp3_frame(id3, "TPE2"),
         "album": _mp3_frame(id3, "TALB"),
         "date": _mp3_frame(id3, "TDRC"),
         "track": _mp3_frame(id3, "TRCK"),
@@ -605,6 +624,7 @@ def _write_id3_container(path: str, audio_cls, c: dict, cover_bytes: bytes | Non
 
     set_text("TIT2", TIT2, c.get("title"))
     set_text("TPE1", TPE1, c.get("artist"))
+    set_text("TPE2", TPE2, c.get("album_artist"))
     set_text("TALB", TALB, c.get("album"))
     set_text("TDRC", TDRC, c.get("date"))
     set_text("TRCK", TRCK, c.get("track"))
@@ -649,6 +669,7 @@ def _read_vorbis_comment(path: str, audio_cls) -> dict:
     return {
         "title": first("title"),
         "artist": first("artist"),
+        "album_artist": first("albumartist"),
         "album": first("album"),
         "date": first("date"),
         "track": first("tracknumber"),
@@ -682,6 +703,7 @@ def _write_vorbis_comment(path: str, audio_cls, c: dict, cover_bytes: bytes | No
 
     set_field("title", c.get("title"))
     set_field("artist", c.get("artist"))
+    set_field("albumartist", c.get("album_artist"))
     set_field("album", c.get("album"))
     set_field("date", c.get("date"))
     set_field("tracknumber", c.get("track"))
@@ -749,6 +771,7 @@ def _read_wma(path: str) -> dict:
     return {
         "title": first(WM_TITLE_ATTR),
         "artist": first(WM_ARTIST_ATTR),
+        "album_artist": first(WM_ALBUM_ARTIST_ATTR),
         "album": first(WM_ALBUM_ATTR),
         "date": first(WM_YEAR_ATTR),
         "track": first(WM_TRACK_ATTR),
@@ -802,6 +825,7 @@ def _write_wma(path: str, c: dict, cover_bytes: bytes | None) -> None:
 
     set_field(WM_TITLE_ATTR, c.get("title"))
     set_field(WM_ARTIST_ATTR, c.get("artist"))
+    set_field(WM_ALBUM_ARTIST_ATTR, c.get("album_artist"))
     set_field(WM_ALBUM_ATTR, c.get("album"))
     set_field(WM_YEAR_ATTR, c.get("date"))
     set_field(WM_TRACK_ATTR, c.get("track"))

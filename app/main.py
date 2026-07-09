@@ -139,12 +139,17 @@ class AlbumEditRequest(BaseModel):
     """Request body shape for manually editing an album's artist/album name.
 
     Attributes:
-        artist: New artist name to write to every file in the album, or
-            `None`/omitted to leave the artist tag untouched.
+        album_artist: New album-artist name to write to every file in the
+            album, or `None`/omitted to leave that tag untouched. This is
+            deliberately `album_artist`, not `artist` — see
+            `edit_album_metadata` and `apply_album_match` for why writing
+            an album-level edit into every file's `artist` (performer)
+            tag was a bug: it clobbered per-song performer credits (e.g.
+            a featured singer) with the album's own artist/composer credit.
         album: New album name to write to every file in the album, or
             `None`/omitted to leave the album tag untouched.
     """
-    artist: str | None = None
+    album_artist: str | None = None
     album: str | None = None
 
 
@@ -499,18 +504,33 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
 
     Unlike the single-song `apply_match`, this updates *every file that
     can be confirmed to belong to this album* in one request, applying the
-    shared album-level fields (album title, artist, date, cover) to each.
-    Each file keeps its own existing `title` tag untouched — there's no
-    per-track tracklist to draw a corrected title from (that required a
+    shared album-level fields (`album_artist`, album title, date, cover) to
+    each. Each file keeps its own existing `title` tag untouched — there's
+    no per-track tracklist to draw a corrected title from (that required a
     MusicBrainz release lookup, which this app no longer does; see
     `matchers.py`'s module docstring).
 
-    Track numbers come from `matchers.find_track_number` when possible — a
-    per-file, fuzzy-matched iTunes song search keyed on the file's own
-    title plus the confirmed album/artist. iTunes' `entity=song` search
-    returns a real `trackNumber` per song even though the `entity=album`
-    search used to find this candidate doesn't. Two outcomes when that
-    lookup can't confirm a track number:
+    **`artist` vs `album_artist` — this is the field this function used to
+    get wrong.** An album's iTunes "artist" credit (`req.candidate`'s
+    `artist`) is the *album's* artist — a composer, or the headline name a
+    various-performers release is filed under (e.g. `"Ilaiyaraaja"` for a
+    film soundtrack). It is **not** necessarily who performs any given
+    song on that album (e.g. `"S.P. Balasubrahmanyam & K.S. Chithra"`
+    singing one specific track). An earlier version wrote the album's
+    artist onto every track's `artist` tag, silently overwriting correct,
+    song-specific performer credits with the wrong (album-level) one. Now:
+    `req.candidate`'s `artist` only ever gets written to each file's
+    `album_artist` tag; each file's own `artist` tag is only touched when
+    `matchers.find_track_info`'s per-song iTunes search can confirm that
+    *specific song's own* artist credit.
+
+    Track numbers and per-track artists come from `matchers.find_track_info`
+    when possible — a per-file, fuzzy-matched iTunes song search keyed on
+    the file's own title plus the confirmed album/artist. iTunes'
+    `entity=song` search returns a real `trackNumber` *and* `artistName`
+    per song even though the `entity=album` search used to find this
+    candidate returns neither. Two outcomes when that lookup can't confirm
+    a match:
 
     - The file has **no local `title`** to search by at all: it's
       **skipped entirely** — no tag write, no rename. There's nothing to
@@ -519,16 +539,19 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
       track or stray non-album file sharing the folder getting mistagged.
     - The file **already has a local title** (the common case for a
       library that's been at least loosely tagged before): falls back to
-      whatever track number is already on the file. A file the user can
-      see already has a title and track filled in is, in practice, a file
-      they already trust belongs here — refusing to write the shared
-      album fields to it just because iTunes' own text doesn't
-      byte-for-byte match a possibly non-English or annotated local title
-      (`"(Version 1)"`, transliteration spelling, etc.) made the core
-      "approve an album match" feature silently do almost nothing on
-      real-world libraries. See `find_track_number`'s docstring for the
-      fuzzy-matching thresholds that now also reduce how often this
-      fallback is needed in the first place.
+      whatever track number is already on the file, and leaves its
+      `artist` tag completely untouched (only `album_artist`/`album`/
+      `date` get written) rather than guess at a per-song credit iTunes
+      couldn't confirm. A file the user can see already has a title and
+      track filled in is, in practice, a file they already trust belongs
+      here — refusing to write the shared album-level fields to it just
+      because iTunes' own text doesn't byte-for-byte match a possibly
+      non-English or annotated local title (`"(Version 1)"`,
+      transliteration spelling, etc.) made the core "approve an album
+      match" feature silently do almost nothing on real-world libraries.
+      See `find_track_info`'s docstring for the fuzzy-matching thresholds
+      that now also reduce how often this fallback is needed in the first
+      place.
 
     This deliberately does *not* renumber sequentially by local folder
     position (removed — it overwrote real iTunes numbers with a file's
@@ -545,7 +568,7 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
     Returns:
         A list of public file info dicts (see `_public_view`), one per
         song in the album. Files that got tagged (whether iTunes confirmed
-        the track number or the local-title fallback applied — see above)
+        a per-song match or the local-title fallback applied — see above)
         have freshly-written tags and, if renamed, an updated `filename`;
         the one skipped case (no local title at all) is returned unchanged,
         exactly as it was before this request.
@@ -562,8 +585,8 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
     for fid in ordered:
         record = FILES[fid]
         title = record["tags"].get("title")
-        track = matchers.find_track_number(title, req.candidate.get("artist"), req.candidate.get("title"))
-        if track is None:
+        track_info = matchers.find_track_info(title, req.candidate.get("artist"), req.candidate.get("title"))
+        if track_info is None:
             if not title:
                 # No local title to search by at all — nothing to confirm
                 # this file against the release with, and nothing to build
@@ -575,15 +598,17 @@ def apply_album_match(artist: str, album: str, req: ApplyRequest):
             # couldn't confidently confirm it against this release (common
             # for non-English/transliterated titles, or a local
             # "(Version 1)"-style suffix iTunes' own listing doesn't have).
-            # The file already carries a title and (usually) a track
-            # number a human entered/trusted, so fall back to that rather
-            # than refuse to tag a file the user can plainly see belongs
-            # here — this is different from the "no title at all" case
-            # above, where there's nothing to fall back to.
-            track = record["tags"].get("track")
+            # Fall back to the file's own local track number, and leave
+            # its `artist` (the performer) tag alone entirely — we have no
+            # confirmed per-song credit to write, and guessing the album's
+            # artist is exactly the bug this function used to have.
+            track, track_artist = record["tags"].get("track"), None
+        else:
+            track, track_artist = track_info["track"], track_info["artist"]
         candidate = {
             "title": title,
-            "artist": req.candidate.get("artist"),
+            "artist": track_artist,
+            "album_artist": req.candidate.get("artist"),
             "album": req.candidate.get("title"),
             "date": req.candidate.get("date"),
             "track": track,
@@ -600,23 +625,30 @@ def edit_album_metadata(artist: str, album: str, req: AlbumEditRequest):
     For the UI's "edit album" inline form (pencil icon next to the album
     header) — a manual, human-typed correction, not a metadata-service
     match. Unlike `apply_album_match`, this writes to **every** file in
-    the folder unconditionally, with no `matchers.find_track_number`
+    the folder unconditionally, with no `matchers.find_track_info`
     belonging-check: that check exists to protect against an *automated*
     iTunes-driven bulk apply guessing wrong on a bonus/stray file, but here
     the user has explicitly told this app what the whole folder's
-    artist/album is, which is exactly the kind of override the
+    album-artist/album is, which is exactly the kind of override the
     belonging-check would otherwise get in the way of (e.g. old/rare
     albums iTunes has no listing for at all, and so could never confirm
     any file against). No renaming happens here — filenames aren't derived
-    from artist/album, only from `track`/`title` (see `_build_filename`),
-    neither of which this endpoint touches.
+    from album-artist/album, only from `track`/`title` (see
+    `_build_filename`), neither of which this endpoint touches.
+
+    This writes `album_artist`, deliberately not `artist` — each file's
+    own `artist` (the track's own performer) is left completely
+    untouched. An album-header edit is a statement about the *album*, not
+    about who performs any individual song on it; see `apply_album_match`
+    for the bug this mirrors (and fixes) in the automated apply path.
 
     Args:
         artist: Folder-derived artist name, from the URL path — identifies
             the file set (see `_files_in_album`).
         album: Folder-derived album name, from the URL path.
-        req: The new artist/album text to write (see `AlbumEditRequest`);
-            either may be omitted to leave that field untouched.
+        req: The new album-artist/album text to write (see
+            `AlbumEditRequest`); either may be omitted to leave that field
+            untouched.
 
     Returns:
         A list of updated public file info dicts (see `_public_view`), one
@@ -624,13 +656,13 @@ def edit_album_metadata(artist: str, album: str, req: AlbumEditRequest):
 
     Raises:
         HTTPException: 404 if no files match this artist/album pair, 400
-            if neither `artist` nor `album` was given.
+            if neither `album_artist` nor `album` was given.
     """
     file_ids = _files_in_album(artist, album)
     if not file_ids:
         raise HTTPException(404, "album not found")
 
-    fields = {k: v for k, v in {"artist": req.artist, "album": req.album}.items() if v}
+    fields = {k: v for k, v in {"album_artist": req.album_artist, "album": req.album}.items() if v}
     if not fields:
         raise HTTPException(400, "nothing to update")
 
@@ -761,7 +793,8 @@ def _verify_write(path: str, candidate: dict, tags_after: dict) -> None:
     Args:
         path: The file path, for the error message only.
         candidate: The dict passed to `tagging.write_tags` — same keys
-            (`title`, `artist`, `album`, `date`, `track`) it recognizes.
+            (`title`, `artist`, `album_artist`, `album`, `date`, `track`)
+            it recognizes.
         tags_after: The dict from `tagging.read_tags`, read immediately
             after the write (and any rename) completed.
 
@@ -771,7 +804,7 @@ def _verify_write(path: str, candidate: dict, tags_after: dict) -> None:
             real "Apply failed" error in the UI instead of a silent,
             incorrect "tagged" status.
     """
-    mismatched = [k for k in ("title", "artist", "album", "date", "track")
+    mismatched = [k for k in ("title", "artist", "album_artist", "album", "date", "track")
                   if not _tag_value_matches(candidate.get(k), tags_after.get(k))]
     if mismatched:
         raise HTTPException(

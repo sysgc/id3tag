@@ -137,11 +137,15 @@ function renderDetail(key) {
 
   const header = document.createElement("div");
   header.className = "detail-header";
-  // prefer the actual tag artist (accurate once a match's been approved) over
-  // the folder-derived hint, which stays "Unknown Artist" forever if there's
-  // no artist-level subfolder — and if we still have nothing, just show the
-  // album name rather than an "Unknown Artist —" label nobody needs
-  const displayArtist = group ? (mostCommonTagArtist(items) || group.artist) : null;
+  // prefer the actual album_artist tag (accurate once a match's been
+  // approved) over the folder-derived hint, which stays "Unknown Artist"
+  // forever if there's no artist-level subfolder — falls back to the most
+  // common track artist for a library that's never had album_artist set,
+  // and if we still have nothing, just show the album name rather than an
+  // "Unknown Artist —" label nobody needs
+  const displayArtist = group
+    ? (mostCommonTagValue(items, "album_artist") || mostCommonTagValue(items, "artist") || group.artist)
+    : null;
   const label = group
     ? (displayArtist && displayArtist !== NO_ARTIST ? `${displayArtist} — ${group.album}` : group.album)
     : key;
@@ -154,7 +158,7 @@ function renderDetail(key) {
   if (group) {
     const editBtn = document.createElement("button");
     editBtn.className = "edit-btn edit-album-btn";
-    editBtn.title = "Edit artist/album";
+    editBtn.title = "Edit album artist/album title";
     editBtn.innerHTML = "&#9998;";
     editBtn.addEventListener("click", () => albumEditForm.classList.toggle("hidden"));
     titleWrap.appendChild(editBtn);
@@ -172,7 +176,7 @@ function renderDetail(key) {
   const albumEditForm = document.createElement("form");
   albumEditForm.className = "inline-edit-form album-edit-form hidden";
   albumEditForm.innerHTML = `
-    <label>Artist <input type="text" class="edit-album-artist"></label>
+    <label>Album Artist <input type="text" class="edit-album-artist"></label>
     <label>Album <input type="text" class="edit-album-album"></label>
     <div class="inline-edit-actions">
       <button type="submit" class="edit-save-btn">Save</button>
@@ -186,7 +190,7 @@ function renderDetail(key) {
     albumEditForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = {
-        artist: albumEditForm.querySelector(".edit-album-artist").value.trim() || null,
+        album_artist: albumEditForm.querySelector(".edit-album-artist").value.trim() || null,
         album: albumEditForm.querySelector(".edit-album-album").value.trim() || null,
       };
       const saveBtn = albumEditForm.querySelector(".edit-save-btn");
@@ -222,17 +226,17 @@ function renderDetail(key) {
   capEntries(songsContainer, ".song-row", 15);
 }
 
-function mostCommonTagArtist(items) {
+function mostCommonTagValue(items, field) {
   const counts = new Map();
   for (const r of items) {
-    const artist = r.tags.artist;
-    if (!artist) continue;
-    counts.set(artist, (counts.get(artist) || 0) + 1);
+    const v = r.tags[field];
+    if (!v) continue;
+    counts.set(v, (counts.get(v) || 0) + 1);
   }
   let best = null;
   let bestCount = 0;
-  for (const [artist, count] of counts) {
-    if (count > bestCount) { best = artist; bestCount = count; }
+  for (const [v, count] of counts) {
+    if (count > bestCount) { best = v; bestCount = count; }
   }
   return best;
 }
@@ -331,6 +335,7 @@ function wireSongEdit(row, state) {
   const fields = {
     title: form.querySelector(".edit-title"),
     artist: form.querySelector(".edit-artist"),
+    album_artist: form.querySelector(".edit-album_artist"),
     album: form.querySelector(".edit-album"),
     date: form.querySelector(".edit-date"),
     track: form.querySelector(".edit-track"),
@@ -374,6 +379,7 @@ function renderCurrentTags(row, tags) {
   el.innerHTML = `
     <div><strong>Title:</strong> ${tags.title || "—"}</div>
     <div><strong>Artist:</strong> ${tags.artist || "—"}</div>
+    <div><strong>Album Artist:</strong> ${tags.album_artist || "—"}</div>
     <div><strong>Album:</strong> ${tags.album || "—"}</div>
     <div><strong>Year:</strong> ${tags.date || "—"}</div>
     <div><strong>Track:</strong> ${tags.track || "—"}</div>

@@ -241,7 +241,7 @@ def search_itunes(title: str, artist: str, album: str | None, limit=5) -> list[d
 
 _TRACK_TITLE_MATCH_THRESHOLD = 0.72
 """Minimum `album_similarity`-style ratio between a file's local title and
-an iTunes song search result's title for `find_track_number` to trust that
+an iTunes song search result's title for `find_track_info` to trust that
 result. Loose exact-equality matching used to live here, but real-world
 titles routinely differ from iTunes' own text in ways that are still
 obviously "the same song" — a `"(Version 1)"`/`"(Remastered)"` suffix a
@@ -258,18 +258,29 @@ right song; the album check here is just a sanity check against confusing
 this song with a same-named track on a *different* release."""
 
 
-def find_track_number(title: str | None, artist: str | None, album: str | None) -> str | None:
-    """Look up a song's real iTunes track number, for use in an album apply.
+def find_track_info(title: str | None, album_artist: str | None, album: str | None) -> dict | None:
+    """Look up a song's real iTunes track number *and its own performing artist*.
 
     `search_release_itunes` (the album search) only gets a `trackCount`
     from iTunes' `entity=album` results, not a per-track listing — there's
     no MusicBrainz tracklist lookup anymore to draw individual track
     numbers from (see the module docstring). But iTunes' `entity=song`
-    search (`search_itunes`) *does* return a `trackNumber` per matching
-    song, so a per-file song search can still recover the right number —
-    this is what `main.py`'s `apply_album_match` calls to correct a local
-    file's track tag to match iTunes, instead of trusting whatever
-    (possibly wrong) number is already on the file.
+    search (`search_itunes`) *does* return a `trackNumber` and an
+    `artistName` per matching song, so a per-file song search can still
+    recover both — this is what `main.py`'s `apply_album_match` calls to
+    correct a local file's track number and set its *track* artist
+    (the performer/singer), as distinct from the *album* artist (see
+    `main.py` for why those two are different fields).
+
+    This distinction matters a lot for compilations and soundtracks: an
+    album's iTunes "artist" credit is often a composer or the billed
+    headline artist (e.g. `"Ilaiyaraaja"` for a film score), while each
+    individual song can have a completely different performer (e.g.
+    `"S.P. Balasubrahmanyam & K.S. Chithra"`). Blindly writing the album's
+    artist onto every track's `artist` tag overwrites correct,
+    song-specific performer credits with an incorrect one — this function
+    exists specifically so `apply_album_match` doesn't have to guess: it
+    asks iTunes for *this song's own* artist credit, not the album's.
 
     Matching is fuzzy (see `_TRACK_TITLE_MATCH_THRESHOLD`/
     `_TRACK_ALBUM_MATCH_THRESHOLD`), not exact-equality — an earlier version
@@ -282,20 +293,25 @@ def find_track_number(title: str | None, artist: str | None, album: str | None) 
 
     Args:
         title: The song's title (from its own local tag) to search for.
-        artist: The confirmed album's artist, to disambiguate the search.
+        album_artist: The confirmed album's artist, used only to steer the
+            search query (see `search_itunes`) — never assumed to be this
+            individual song's own artist.
         album: The confirmed album title, used to deprioritize results
             from a different release of the same song (e.g. a compilation)
-            that would carry a different track number.
+            that would carry a different track number/artist.
 
     Returns:
-        The best-title-matching iTunes result's track number, or `None` if
-        `title` is empty, the search fails, or no result's title (and,
-        loosely, album) is a close enough fuzzy match to trust.
+        A `{"track": ..., "artist": ...}` dict from the best-title-matching
+        iTunes result, or `None` if `title` is empty, the search fails, or
+        no result's title (and, loosely, album) is a close enough fuzzy
+        match to trust. `artist` here is that specific song's own
+        `artistName` from iTunes — not necessarily the same as
+        `album_artist`.
     """
     if not title:
         return None
-    best_track, best_score = None, 0.0
-    for r in search_itunes(title, artist, album, limit=5):
+    best, best_score = None, 0.0
+    for r in search_itunes(title, album_artist, album, limit=5):
         title_score = album_similarity(title, r.get("title"))
         if title_score < _TRACK_TITLE_MATCH_THRESHOLD:
             continue
@@ -304,8 +320,8 @@ def find_track_number(title: str | None, artist: str | None, album: str | None) 
             if album_score < _TRACK_ALBUM_MATCH_THRESHOLD:
                 continue
         if title_score > best_score:
-            best_track, best_score = r.get("track"), title_score
-    return best_track
+            best, best_score = {"track": r.get("track"), "artist": r.get("artist")}, title_score
+    return best
 
 
 def fingerprint_match(filepath: str) -> list[dict]:
